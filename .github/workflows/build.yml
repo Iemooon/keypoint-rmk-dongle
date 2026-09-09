@@ -20,12 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The Cargo.toml consumes rmk as `path = ../rmk/rmk` (Lemon's fork
-      # checkout). actions/checkout refuses targets outside the workspace,
-      # so clone it to the same relative position with a plain git command
-      # (public repo, anonymous https is enough).
-      - name: Clone rmk fork (../rmk)
-        run: git clone --depth 1 https://github.com/Iemooon/rmk.git ../rmk
+      # The Cargo.toml consumes rmk as
+      # `path = ../Documents/GitHub/rmk/rmk` (the on-disk position of Lemon's
+      # fork clone). actions/checkout refuses targets outside the workspace,
+      # so land it there with a plain git command (public repo, anonymous
+      # https is enough).
+      - name: Clone rmk fork (../Documents/GitHub/rmk)
+        run: git clone --depth 1 https://github.com/Iemooon/rmk.git ../Documents/GitHub/rmk
 
       - uses: dtolnay/rust-toolchain@stable
         with:
