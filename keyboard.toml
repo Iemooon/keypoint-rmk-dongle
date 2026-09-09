@@ -1,0 +1,19 @@
+# KeyPoint-DG baseline: the stock nrf52840_ble_split_dongle example config,
+# plus the one quota fix verified during the keypoint-dongle bring-up.
+
+# Two BLE peripherals: left half (id 0) + right half (id 1).
+[rmk]
+split_peripherals_num = 2
+
+# clear_peer: the central-side PeripheralManager subscribes once per link.
+# With two halves the built-in default (1) hard-panics the moment the second
+# half connects (verified on rev d0502f17; extra quota is a few bytes of
+# static RAM, harmless even if the newer rmk HEAD no longer needs it).
+[event.clear_peer]
+subs = 2
+
+# Key events: default channel ring is 1, which makes the matrix scan and the
+# central-side relay stall behind any slow consumer (felt as typing lag).
+# Depth 8 costs ~100 B static, proven on the halves since the wired build.
+[event.keyboard]
+channel_size = 8

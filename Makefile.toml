@@ -1,0 +1,167 @@
+[tasks.install-llvm-tools]
+install_crate = { rustup_component_name = "llvm-tools" }
+
+[tasks.flip-link]
+install_crate = { crate_name = "flip-link", binary = "flip-link", test_arg = ["-h"] }
+
+# memory.x is shared by all three bins (build.rs copies it for the linker),
+# but the receiver links at 0x10000 (Nordic dongle bootloader) while the
+# halves live at 0x1000 (Adafruit UF2 bootloader). Each build task therefore
+# copies the matching template into place first; build.rs reruns on the
+# memory.x change, so the relink picks up the new base.
+[tasks.memory-dongle]
+command = "cmd"
+args = ["/C", "copy", "/Y", "memory-dongle.x", "memory.x"]
+
+[tasks.memory-halves]
+command = "cmd"
+args = ["/C", "copy", "/Y", "memory-halves.x", "memory.x"]
+
+[tasks.objcopy-central]
+install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
+    "objcopy",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "objcopy",
+    "--release",
+    "--bin",
+    "central",
+    "--",
+    "-O",
+    "ihex",
+    "rmk-central.hex",
+]
+dependencies = ["memory-dongle", "install-llvm-tools", "flip-link"]
+
+[tasks.objcopy-peripheral]
+install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
+    "objcopy",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "objcopy",
+    "--release",
+    "--bin",
+    "peripheral",
+    "--",
+    "-O",
+    "ihex",
+    "rmk-peripheral.hex",
+]
+dependencies = ["memory-halves", "install-llvm-tools", "flip-link"]
+
+[tasks.objcopy-peripheral2]
+install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
+    "objcopy",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "objcopy",
+    "--release",
+    "--bin",
+    "peripheral2",
+    "--",
+    "-O",
+    "ihex",
+    "rmk-peripheral2.hex",
+]
+dependencies = ["memory-halves", "install-llvm-tools", "flip-link"]
+
+[tasks.uf2-central]
+install_crate = { crate_name = "cargo-hex-to-uf2", binary = "cargo", test_arg = [
+    "hex-to-uf2",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "hex-to-uf2",
+    "--input-path",
+    "rmk-central.hex",
+    "--output-path",
+    "rmk-central.uf2",
+    "--family",
+    "nrf52840",
+]
+dependencies = ["objcopy-central"]
+
+[tasks.uf2-peripheral]
+install_crate = { crate_name = "cargo-hex-to-uf2", binary = "cargo", test_arg = [
+    "hex-to-uf2",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "hex-to-uf2",
+    "--input-path",
+    "rmk-peripheral.hex",
+    "--output-path",
+    "rmk-peripheral.uf2",
+    "--family",
+    "nrf52840",
+]
+dependencies = ["objcopy-peripheral"]
+
+[tasks.uf2-peripheral2]
+install_crate = { crate_name = "cargo-hex-to-uf2", binary = "cargo", test_arg = [
+    "hex-to-uf2",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "hex-to-uf2",
+    "--input-path",
+    "rmk-peripheral2.hex",
+    "--output-path",
+    "rmk-peripheral2.uf2",
+    "--family",
+    "nrf52840",
+]
+dependencies = ["objcopy-peripheral2"]
+
+[tasks.uf2]
+dependencies = ["uf2-peripheral", "uf2-peripheral2"]
+
+# Receiver firmware: official Nordic dongle has no UF2 bootloader - it takes
+# a classic serial-DFU package. central.bin = raw image for `nrfutil pkg
+# generate` (sd-req 0x00: firmware carries its own MPSL/SDC, no SoftDevice).
+[tasks.central-bin]
+install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
+    "objcopy",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "objcopy",
+    "--release",
+    "--bin",
+    "central",
+    "--",
+    "-O",
+    "binary",
+    "rmk-central.bin",
+]
+dependencies = ["objcopy-central"]
+
+[tasks.dongle-zip]
+command = "nrfutil"
+args = [
+    "pkg",
+    "generate",
+    "--hw-version",
+    "52",
+    "--sd-req",
+    "0x00",
+    "--application-version",
+    "2",
+    "--application",
+    "rmk-central.bin",
+    "rmk-dongle.zip",
+]
+dependencies = ["central-bin"]
+
+[tasks.dongle]
+dependencies = ["dongle-zip"]
