@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! ┌──────────────┐
-//! │ ᛒ1   ▓▓▓ 68  │ y2  mode badge left (BT rune+slot, or USB plug)
+//! │ ᛒ1   ▓▓▓ 68  │ y2  mode badge left (BT rune, link/profile digits)
 //! │              │     battery bar hugging the right-aligned number
 //! │   (capybara  │ y11 animation, 70x120 centred, 600 s per frame
 //! │    frames)   │
@@ -14,11 +14,12 @@
 //! └──────────────┘
 //! ```
 //!
-//! * Mode badge (top-left): wired -> sm4tik `usb_02` plug at 2x; wireless ->
-//!   Bluetooth rune (bitmap copied from rmk's crate-private icon set) plus
-//!   the 0-based profile digit (`ᛒ0`..`ᛒ2`); advertising shows `ᛒ-`; radio
-//!   idle shows nothing. The right half mirrors the central's status over
-//!   the split link via usb_diag.
+//! * Mode badge (top-left): always the Bluetooth rune (bitmap copied from
+//!   rmk's crate-private icon set) - this build's panels sit on the wireless
+//!   halves. `ᛒ-` while the half advertises for the receiver, plain `ᛒ` with
+//!   the link up, plus the receiver's host profile digit (`ᛒ0`..`ᛒ2`) when
+//!   the receiver itself rides a wireless host leg. The link flag arrives via
+//!   CentralConnectedEvent; the host-side state via the split mirror.
 //! * Battery (top-right): bar plus bare number, right-aligned on x70; the
 //!   bar hugs the number with a 1px gap so they slide together.
 //! * Layer (bottom, centred): names from `LAYER_NAMES` below.
@@ -111,15 +112,8 @@ const BT_ICON: [u8; 28] = [
     0x3E, 0x00, 0x67, 0x00, 0xE3, 0x80, 0xE9, 0x80, 0x8C, 0x80, 0xC9, 0x80, 0xE3, 0x80, 0xE3, 0x80,
     0xC9, 0x80, 0x8C, 0x80, 0xE9, 0x80, 0xE3, 0x80, 0x67, 0x00, 0x3E, 0x00,
 ];
-/// USB badge: `usb_02.xbm` from pablopalacios/sm4tik-xbm-icons (MIT) — the
-/// classic USB-A plug silhouette, 8x8 pixel-native, blitted at 2x (16x16).
-/// Shifted 2 columns left so the artwork's own left edge sits on x0.
-const USB_ICON: [u8; 8] = [0x20, 0x28, 0xA8, 0xA8, 0xB0, 0x60, 0x20, 0x20];
 const BT_W: i32 = 9;
 const BT_H: i32 = 14;
-const USB_W: i32 = 8;
-const USB_H: i32 = 8;
-const USB_SCALE: i32 = 2;
 
 // Absolute corner plan for the 72x144 portrait canvas. All values tuned on
 // the real panel; do not re-derive.
@@ -159,7 +153,8 @@ pub struct RightScreen {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct UiSnap {
     frame: usize,
-    usb_on: bool,
+    /// Half<->receiver split link up (CentralConnectedEvent on the peripheral).
+    link_up: bool,
     /// BleState discriminant: 0 Inactive, 1 Advertising, 2 Connected.
     ble_state: u8,
     profile: u8,
@@ -231,10 +226,10 @@ fn shown_battery(raw: Option<u8>) -> Option<u8> {
     Some(r)
 }
 
-fn make_snap(ctx: &RenderContext, usb_on: bool, salt: u32) -> UiSnap {
+fn make_snap(ctx: &RenderContext, salt: u32) -> UiSnap {
     UiSnap {
         frame: capy_frame(salt),
-        usb_on,
+        link_up: ctx.central_connected,
         ble_state: match ctx.ble_status.state {
             BleState::Inactive => 0,
             BleState::Advertising => 1,
@@ -272,7 +267,6 @@ fn blit<D: DrawTarget<Color = BinaryColor>>(d: &mut D, bits: &[u8], w: i32, h: i
 fn render_ui<D: DrawTarget<Color = BinaryColor>>(
     d: &mut D,
     ctx: &RenderContext,
-    usb_on: bool,
     frame: usize,
 ) {
     d.clear(BinaryColor::Off).ok();
@@ -280,25 +274,22 @@ fn render_ui<D: DrawTarget<Color = BinaryColor>>(
                         // overdraw it afterwards
 
     // --- top-left: mode badge ---
-    if usb_on {
-        blit(d, &USB_ICON, USB_W, USB_H, 1, USB_SCALE, 2, ICON_Y);
-    } else {
-        // The rune goes dark entirely only when the radio is inactive;
-        // advertising keeps it with a dash where the slot digit belongs.
-        if !matches!(ctx.ble_status.state, BleState::Inactive) {
-            blit(d, &BT_ICON, BT_W, BT_H, 2, 1, 2, ICON_Y);
-            let mut s: String<4> = String::new();
-            match ctx.ble_status.state {
-                BleState::Advertising => {
-                    s.push('-').ok();
-                }
-                _ => {
-                    write!(s, "{}", ctx.ble_status.profile).ok();
-                }
-            }
-            txt(d, &s, BT_W + 4, NUM_Y, HEAD); // icon x2..10, 2px gap
-        }
+    //
+    // Dongle topology: these panels sit on the WIRELESS legs. The wired-central
+    // build mirrored the central's host transport here, so on the dongle it
+    // painted a USB plug whenever the receiver was cabled to the PC - reading
+    // as "the keyboard is wired". The badge now reports the half<->receiver
+    // split link itself: rune + dash while the half still advertises for the
+    // receiver, plain rune once the link is up, and the receiver's BLE profile
+    // digit on top when the receiver itself rides a wireless host leg.
+    blit(d, &BT_ICON, BT_W, BT_H, 2, 1, 2, ICON_Y);
+    let mut s: String<4> = String::new();
+    if !ctx.central_connected {
+        s.push('-').ok();
+    } else if matches!(ctx.ble_status.state, BleState::Connected) {
+        write!(s, "{}", ctx.ble_status.profile).ok();
     }
+    txt(d, &s, BT_W + 4, NUM_Y, HEAD); // icon x2..10, 2px gap
 
     // --- top-right: battery bar + number, chained right-aligned columns ---
     // Displayed value passes the anti-wobble filter (shown_battery); the
@@ -353,15 +344,14 @@ impl DisplayRenderer<BinaryColor> for LeftScreen {
         ctx: &RenderContext,
         d: &mut D,
     ) {
-        let usb_on = crate::usb_diag::usb_connected();
-        let snap = make_snap(ctx, usb_on, 0x85eb_ca6b);
+        let snap = make_snap(ctx, 0x85eb_ca6b);
         if self.snap == Some(snap) {
             return; // nothing the UI draws has changed
         }
         self.snap = Some(snap);
         // ZMK's left/right salts (right = the _DG variant's) live in make_snap;
         // the UI body needs only the resolved frame index.
-        render_ui(d, ctx, usb_on, snap.frame);
+        render_ui(d, ctx, snap.frame);
     }
 }
 
@@ -371,14 +361,11 @@ impl DisplayRenderer<BinaryColor> for RightScreen {
         ctx: &RenderContext,
         d: &mut D,
     ) {
-        // Wired badge comes from the central's mirrored ConnectionStatus,
-        // tracked by our usb_diag task (see peripheral.rs).
-        let usb_on = crate::usb_diag::usb_connected();
-        let snap = make_snap(ctx, usb_on, 0x9e37_79b9);
+        let snap = make_snap(ctx, 0x9e37_79b9);
         if self.snap == Some(snap) {
             return; // nothing the UI draws has changed
         }
         self.snap = Some(snap);
-        render_ui(d, ctx, usb_on, snap.frame);
+        render_ui(d, ctx, snap.frame);
     }
 }

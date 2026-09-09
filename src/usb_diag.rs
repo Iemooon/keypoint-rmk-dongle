@@ -33,6 +33,9 @@ static TAPE: AtomicU32 = AtomicU32::new(0);
 static USB_NOW: AtomicU8 = AtomicU8::new(0);
 
 /// For the UI: is the USB cable connected (Suspended counts as plugged).
+/// Dead since the dongle badge switched to the split link (renderers.rs);
+/// kept beside the tape writer for bring-up forensics.
+#[allow(dead_code)]
 pub fn usb_connected() -> bool {
     USB_NOW.load(Ordering::Relaxed) != 0
 }
