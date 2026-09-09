@@ -94,8 +94,15 @@ subs = 4
 
 # Split-leg LED on the halves: rmk's DisplayProcessor subscribes for the
 # panel (slot 1), central_link_task is slot 2. At the default capacity 1 the
-# second subscriber() panics outright. Zero subscribers on the dongle.
+# second subscriber() panics outright. On the dongle, the link_led task is
+# the only subscriber (PeripheralConnectedEvent) - 2 leaves it headroom.
 [event.central_connected]
+subs = 2
+
+# Half connect/disconnect edges on the dongle: our link_led pairing indicator.
+# Normally zero subscribers here (the halves' DisplayProcessor is slot 1 on
+# their own chip); with the indicator this is 1 + headroom.
+[event.peripheral_connected]
 subs = 2
 
 # Action events: auto_mouse subscribes only when deactivate_on_key /

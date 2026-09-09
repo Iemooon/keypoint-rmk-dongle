@@ -124,11 +124,12 @@ fn ble_addr() -> [u8; 6] {
 
 // ==================== boot diagnostics ====================
 //
-// The dongle exposes no debug pins, so failures are reported on BOTH LEDs:
-// a panic blinks a group of N quick flashes where N is the boot stage that
-// died (see stage() calls in main), repeating forever with a long gap between
-// groups. A clean boot instead shows one short flash every ~3 s (heartbeat
-// task). LEDs completely dark + no USB enumeration = an await blocked without
+// The dongle exposes no debug pins, so a panic is reported on BOTH LEDs:
+// a group of N quick flashes where N is the boot stage that died (see
+// stage() calls in main), repeating forever with a long gap between groups.
+// In normal running the LEDs instead serve as the pairing indicator - see
+// link_led below (blink = a half is still missing, off = both links up).
+// LEDs completely dark + no USB enumeration = an await blocked without
 // panicking (prime suspect HardwareVbusDetect -> build with --features softvd).
 
 mod bootdiag {
@@ -176,18 +177,49 @@ mod bootdiag {
     }
 }
 
+/// Pairing indicator on the two dongle LEDs (they blink in lockstep):
+/// ~3 Hz while either half link is down ("looking for its keyboards"), and
+/// dark once both peripherals are connected. Built on the connect/disconnect
+/// edges of PeripheralConnectedEvent; during the blink phase the wait is
+/// interruptible so a link coming up stops the flash mid-beat at worst 160 ms
+/// later, in the dark phase a drop wakes it instantly.
 #[embassy_executor::task]
-async fn heartbeat(
+async fn link_led(
     mut led1: embassy_nrf::gpio::Output<'static>,
     mut led2: embassy_nrf::gpio::Output<'static>,
 ) -> ! {
+    use embassy_futures::select::{Either, select};
+    use rmk::event::{EventSubscriber, PeripheralConnectedEvent, SubscribableEvent};
+
+    let mut sub = PeripheralConnectedEvent::subscriber();
+    // This build is hard-wired to the two halves (see the PeripheralMatrixConfig
+    // array in main), so a fixed pair of flags matches the topology.
+    let mut linked = [false; 2];
     loop {
-        led1.set_low();
-        led2.set_low();
-        embassy_time::Timer::after_millis(120).await;
-        led1.set_high();
-        led2.set_high();
-        embassy_time::Timer::after_millis(2900).await;
+        if linked.iter().all(|c| *c) {
+            led1.set_high();
+            led2.set_high();
+            let ev = sub.next_event().await;
+            if ev.id < 2 {
+                linked[ev.id] = ev.connected;
+            }
+            continue;
+        }
+        // Active-low LEDs: low = lit. Two half-periods make one blink.
+        for lit in [true, false] {
+            if lit {
+                led1.set_low();
+                led2.set_low();
+            } else {
+                led1.set_high();
+                led2.set_high();
+            }
+            if let Either::Second(ev) = select(embassy_time::Timer::after_millis(160), sub.next_event()).await
+                && ev.id < 2
+            {
+                linked[ev.id] = ev.connected;
+            }
+        }
     }
 }
 
@@ -407,8 +439,9 @@ async fn main(spawner: Spawner) {
 
     let mut watchdog_runner = Nrf52Watchdog::default_runner(p.WDT);
 
-    // Diagnostics: hand BOTH dongle LEDs to the heartbeat task, then announce
-    // "run_all entered" (a later panic blinks stage 7).
+    // Pairing indicator: hand BOTH dongle LEDs to the link task (blink until
+    // both halves are up, then dark), then announce "run_all entered" (a
+    // later panic still blinks stage 7).
     let led1 = embassy_nrf::gpio::Output::new(
         p.P0_06,
         embassy_nrf::gpio::Level::High,
@@ -419,7 +452,7 @@ async fn main(spawner: Spawner) {
         embassy_nrf::gpio::Level::High,
         embassy_nrf::gpio::OutputDrive::Standard,
     );
-    spawner.spawn(heartbeat(led1, led2).unwrap());
+    spawner.spawn(link_led(led1, led2).unwrap());
     bootdiag::stage(7);
 
     // Start
