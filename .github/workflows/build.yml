@@ -1,0 +1,71 @@
+name: Build firmware
+
+# Cloud mirror of the local pipeline: builds the three images and uploads
+# them as artifacts. The crate-root memory.x is a generated file (Makefile
+# swaps it locally), so the jobs copy the role template explicitly, exactly
+# as `cargo make` does on Windows.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Cargo.toml consumes rmk as `path = ../rmk/rmk` (Lemon's fork
+      # checkout). Land it at the same relative position in the runner.
+      - name: Checkout rmk fork (../rmk)
+        uses: actions/checkout@v4
+        with:
+          repository: Iemooon/rmk
+          ref: main
+          path: ../rmk
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+          components: llvm-tools
+
+      - name: Install build tools
+        run: cargo install flip-link cargo-binutils
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build receiver (central)
+        run: |
+          cp memory-dongle.x memory.x
+          cargo objcopy --release --bin central -- -O ihex rmk-central.hex
+
+      - name: Build halves (left + right)
+        run: |
+          cp memory-halves.x memory.x
+          cargo objcopy --release --bin left  -- -O ihex rmk-left.hex
+          cargo objcopy --release --bin right -- -O ihex rmk-right.hex
+          cargo hex-to-uf2 --input-path rmk-left.hex  --output-path rmk-left.uf2  --family nrf52840
+          cargo hex-to-uf2 --input-path rmk-right.hex --output-path rmk-right.uf2 --family nrf52840
+
+      - name: Sanity-check link bases
+        run: |
+          for f in rmk-central.hex rmk-left.hex rmk-right.hex; do
+            head1=$(head -c 9 "$f")
+            echo "$f first record: $head1"
+            [ "$head1" = ":10100000" ] || { echo "ERROR: $f does not start at 0x1000"; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keypoint-dg-firmware
+          path: |
+            rmk-central.hex
+            rmk-left.uf2
+            rmk-right.uf2
+          if-no-files-found: error
