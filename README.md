@@ -72,20 +72,22 @@ N 下=挂死阶段号，正常则每 3 s 单闪一次心跳。
 ## 与 ZMK dongle 版的行为差异
 
 - ZMK receiver 完全禁止对主机 BLE 广播；本版的接收器已改为同款行为（rmk feature
-  `ble_central_only`，本地 rmk 补丁 474a2c77）：接收器的无线电角色只剩两条 split 链路，
+  `ble_central_only`，现驻 lemon fork，提交 00988fd7）：接收器的无线电角色只剩两条 split 链路，
   对主机唯一出口是 USB。代价是主机侧"电量经 BLE 上报"与接收器上的 profile 槽切换失效
   （电量看半键盘屏，profile 键只影响半板历史遗留槽位，无实际作用）。
   如需恢复"接收器也能无线连主机"，去掉该 feature 并重编即可。
 - ZMK receiver 禁用休眠；本版 dongle 沿用 `split_central_sleep_timeout_seconds = 300`
   的慢心跳策略（与 trouble 栈验证过的一致）。
-- 接收器无电池：`BleBatteryConfig` 关闭；两个半键盘电量经 split 链路走 GATT
-  peripheral battery 服务上报 BLE 主机。
+- 接收器无电池：`BleBatteryConfig` 关闭；半键盘电量显示在各自的屏幕上（电量经 BLE
+  GATT 上报主机的那条路随 `ble_central_only` 一并停用，USB 主机侧不再有电池服务消费者）。
 
 ## 来源
 
 - 代码血统：`C:\Users\lemon\keypoint-dongle`（2026-09-09 整体并入本工程后删除——该工程
   唯一实错是接收器 0x10000 链接基址，功能代码本身完好）
-- 依赖：本地 `C:\Users\lemon\rmk`（path 依赖 HEAD，含 dongle 修复 #1112/#1115 与
-  display 宏修复 #1113）
+- 依赖：Lemon 的 rmk fork `https://github.com/Iemooon/rmk`，本地 clone
+  `C:\Users\lemon\Documents\GitHub\rmk`，path 依赖。fork 上携带本工程必需的
+  `ble_central_only` feature（接收器禁主机广播）；上游同步节奏=把 upstream 拉进
+  fork、保住补丁提交、这边重编
 - dongle 结构参考：rmk 官方 `examples/use_rust/nrf52840_ble_split_dongle`
 - 运行逻辑参考：`C:\Users\lemon\Documents\GitHub\keypoint-zmk-dongle`

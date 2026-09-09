@@ -9,8 +9,10 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-# Local rmk checkout (HEAD, includes the 2026 dongle fixes #1112/#1115 and the
-# display macro fix #1113) - the same tree this example was copied from.
+# Lemon's fork of rmk (https://github.com/Iemooon/rmk), cloned at
+# C:\Users\lemon\Documents\GitHub\rmk and consumed here by path. The fork
+# carries our `ble_central_only` patch; sync rhythm = pull upstream into the
+# fork, keep the patch commit alive (rebase/merge), rebuild here.
 # "display" pulls in embedded-graphics and enables the SplitMessage Layer/Wpm/
 # Modifier variants that feed the half panels. It applies to ALL bins (one
 # Cargo.toml), and every device must agree on it or their split messages
@@ -21,7 +23,7 @@ license = "MIT OR Apache-2.0"
 # "ble_central_only": the receiver is a split central ONLY - it never
 # advertises to the host over BLE (ZMK-receiver behaviour); its host leg is
 # the USB plug, its only radio role is the two split links.
-rmk = { path = "../rmk/rmk", default-features = false, features = [
+rmk = { path = "../Documents/GitHub/rmk/rmk", default-features = false, features = [
     "defmt",
     "storage",
     "vial",
