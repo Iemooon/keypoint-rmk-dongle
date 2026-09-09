@@ -23,6 +23,7 @@
 
 mod vial;
 #[macro_use]
+#[allow(unused_macros)] // the matrix-pin macro is for the halves' bins
 mod macros;
 mod keymap;
 mod scroll_key;

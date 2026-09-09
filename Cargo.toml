@@ -18,6 +18,9 @@ license = "MIT OR Apache-2.0"
 # "use_1m_phy": the host's BT adapter shows 2M-PHY link flapping (b -> x -> b
 # re-advertising spells); 1M is slower over the air but far more tolerant.
 # Keep it until the adapter or its driver changes.
+# "ble_central_only": the receiver is a split central ONLY - it never
+# advertises to the host over BLE (ZMK-receiver behaviour); its host leg is
+# the USB plug, its only radio role is the two split links.
 rmk = { path = "../rmk/rmk", default-features = false, features = [
     "defmt",
     "storage",
@@ -29,6 +32,7 @@ rmk = { path = "../rmk/rmk", default-features = false, features = [
     "adafruit_bl",
     "display",
     "use_1m_phy",
+    "ble_central_only",
 ] }
 # (No direct rmk-types dependency: rmk re-exports the whole crate as `rmk::types`.)
 
