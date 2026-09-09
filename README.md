@@ -71,9 +71,11 @@ N 下=挂死阶段号，正常则每 3 s 单闪一次心跳。
 
 ## 与 ZMK dongle 版的行为差异
 
-- ZMK receiver 完全禁止对主机 BLE 广播；本版保留 dongle 的 BLE HID（RMK 模型里中心
-  本来就是可无线对主机的键盘），如需要等效行为可将 `build_sdc` 的
-  `peripheral_count(1)` 改为 0 并去掉 adv 支持。
+- ZMK receiver 完全禁止对主机 BLE 广播；本版的接收器已改为同款行为（rmk feature
+  `ble_central_only`，本地 rmk 补丁 474a2c77）：接收器的无线电角色只剩两条 split 链路，
+  对主机唯一出口是 USB。代价是主机侧"电量经 BLE 上报"与接收器上的 profile 槽切换失效
+  （电量看半键盘屏，profile 键只影响半板历史遗留槽位，无实际作用）。
+  如需恢复"接收器也能无线连主机"，去掉该 feature 并重编即可。
 - ZMK receiver 禁用休眠；本版 dongle 沿用 `split_central_sleep_timeout_seconds = 300`
   的慢心跳策略（与 trouble 栈验证过的一致）。
 - 接收器无电池：`BleBatteryConfig` 关闭；两个半键盘电量经 split 链路走 GATT

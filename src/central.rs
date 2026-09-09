@@ -265,9 +265,10 @@ async fn main(spawner: Spawner) {
         ..DeviceConfig::default()
     };
     let vial_config = VialConfig::new(VIAL_KEYBOARD_ID, VIAL_KEYBOARD_DEF, &[(0, 0), (1, 1)]);
-    // The receiver sits on USB and has no battery of its own; the halves'
-    // battery levels still reach a BLE host through the split link
-    // (`SPLIT_BATTERY_PERIPHERAL_IDS` GATT services in rmk).
+    // The receiver sits on USB and has no battery of its own. With
+    // rmk's `ble_central_only` feature on (this build) the receiver never
+    // serves a BLE host, so the old `SPLIT_BATTERY_PERIPHERAL_IDS` GATT
+    // relay has no consumer; battery lives on the halves' own panels.
     let ble_battery_config = BleBatteryConfig::new(None, false, None, false);
     let storage_config = StorageConfig {
         start_addr: 0xA0000,
