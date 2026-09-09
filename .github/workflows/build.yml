@@ -21,13 +21,11 @@ jobs:
       - uses: actions/checkout@v4
 
       # The Cargo.toml consumes rmk as `path = ../rmk/rmk` (Lemon's fork
-      # checkout). Land it at the same relative position in the runner.
-      - name: Checkout rmk fork (../rmk)
-        uses: actions/checkout@v4
-        with:
-          repository: Iemooon/rmk
-          ref: main
-          path: ../rmk
+      # checkout). actions/checkout refuses targets outside the workspace,
+      # so clone it to the same relative position with a plain git command
+      # (public repo, anonymous https is enough).
+      - name: Clone rmk fork (../rmk)
+        run: git clone --depth 1 https://github.com/Iemooon/rmk.git ../rmk
 
       - uses: dtolnay/rust-toolchain@stable
         with:
