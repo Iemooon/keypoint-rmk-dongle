@@ -1,19 +1,105 @@
-# KeyPoint-DG baseline: the stock nrf52840_ble_split_dongle example config,
-# plus the one quota fix verified during the keypoint-dongle bring-up.
+# Event-channel quotas only. Matrix, pins and keymap all live in Rust
+# (dongle.rs / left.rs / right.rs); this file does not touch them.
+# rmk-types/build.rs reads this file only when KEYBOARD_TOML_PATH is set -
+# injected via [env] in .cargo/config.toml; the file alone does nothing.
+#
+# Three roles share one crate (dongle / left / right), so every quota must
+# satisfy the most demanding role. Channels are broadcast with a ring per
+# subscriber; over quota, a subscriber silently misses events (flaky keys,
+# floaty mouse) or the generated code hard-panics - and one panic resets the
+# whole board (single executor).
+#
+# Values here are absolute; build.rs still adds feature reservations on top,
+# so erring wide is safe. Cost is static RAM: extra slots total ~4 KB, and
+# all three devices have >100 KB free.
 
-# Two BLE peripherals: left half (id 0) + right half (id 1).
+# Compile-time capacity. Root cause of a past silent failure: without a
+# [behavior]/[rmk] section, auto_calculate_parameters() inserts
+# AUTO_MOUSE_LAYER_MAX_NUM = 0, so BehaviorConfig.auto_mouse_layer becomes a
+# zero-capacity heapless::Vec - push(..).ok() swallows "full" as success and
+# the runner pend()s forever with empty entries: no panic, no error, the
+# layer just never changes. 3 (not 2) leaves room for a third entry.
 [rmk]
+auto_mouse_layer_max_num = 3
+# Dongle topology: BOTH halves are split peripherals (left = id 0,
+# right = id 1). This sizes SPLIT_PERIPHERALS_NUM everywhere; on the halves
+# it only widens small slot arrays, on the dongle it is the link count.
 split_peripherals_num = 2
+# Idle sleep manager. The 60s trial with the subrating feature dropped the
+# split link into slow heartbeats that caused dropouts; re-enabled at a
+# conservative 300s WITHOUT subrating, so sleep falls back to the classic
+# slow-connection-parameter path (rmk sleep_split_conn_params), which the
+# trouble stack has always used. Effect: after 5 min of no key/pointing
+# activity, SleepStateEvent slows TP/pad polls and battery reporting to a
+# 2 s heartbeat on the half that sees it; any key resumes. Typing sessions
+# never idle that long.
+split_central_sleep_timeout_seconds = 300
 
-# clear_peer: the central-side PeripheralManager subscribes once per link.
-# With two halves the built-in default (1) hard-panics the moment the second
-# half connects (verified on rev d0502f17; extra quota is a few bytes of
-# static RAM, harmless even if the newer rmk HEAD no longer needs it).
+# Key events: matrix keyloop, split relay, vial, wpm/scroll/speed
+# processors, DisplayProcessor, BLE wake - needs the most headroom.
+# channel_size: per-channel ring depth (rmk default 1!). With depth 1 the
+# publisher blocks the moment any subscriber is mid-task - the matrix scan
+# and the central-side split relay both freeze behind a slow consumer,
+# which is felt as laggy typing. Buffering a few events costs ~100 B static.
+[event.keyboard]
+channel_size = 8
+subs = 8
+pubs = 5
+
+# Pointing: pad_processor, tp_processor, auto_mouse, split relay, BLE wake.
+[event.pointing]
+channel_size = 4
+subs = 4
+pubs = 4
+
+# Modifiers: vial + DisplayProcessor.
+[event.modifier]
+subs = 3
+
+# Layer changes: on the dongle, one PeripheralManager relay per half (2);
+# on the halves, the DisplayProcessor fed by the relay. subs overflow is a
+# hard panic, see rmk-macro event.rs - keep >= 2 + headroom.
+[event.layer_change]
+subs = 3
+
+# ClearPeer: each PeripheralManager::run subscribes under #[cfg(_ble)] (a
+# profile key held on a slot clears that peer). Two managers on the dongle -
+# at the old value 1 the second manager's subscriber() would panic on the
+# second half's first connect. Same hidden-path trap as layer_change.
 [event.clear_peer]
 subs = 2
 
-# Key events: default channel ring is 1, which makes the matrix scan and the
-# central-side relay stall behind any slow consumer (felt as typing lag).
-# Depth 8 costs ~100 B static, proven on the halves since the wired build.
-[event.keyboard]
-channel_size = 8
+# WPM: each half's DisplayProcessor (fed via the split relay); the dongle
+# side is the WpmProcessor publisher itself.
+[event.wpm_update]
+subs = 3
+
+# Sleep state: each half's DisplayProcessor + sleep_watch (poll slowdown);
+# on the dongle, one manager relay per half.
+[event.sleep_state]
+subs = 4
+
+# LED indicator: each half's DisplayProcessor.
+[event.led_indicator]
+subs = 4
+
+# Battery: BLE battery service + each half's DisplayProcessor.
+[event.battery_status]
+subs = 3
+
+# Connection status: the halves' DisplayProcessor + usb_diag mirror (fed by
+# the relay), plus one manager relay per half on the dongle.
+[event.connection_status_change]
+subs = 4
+
+# Split-leg LED on the halves: rmk's DisplayProcessor subscribes for the
+# panel (slot 1), central_link_task is slot 2. At the default capacity 1 the
+# second subscriber() panics outright. Zero subscribers on the dongle.
+[event.central_connected]
+subs = 2
+
+# Action events: auto_mouse subscribes only when deactivate_on_key /
+# reset_timeout_on_key are configured (assert requires SUB_SIZE != 0). Not
+# configured now; 1 slot so adding those lines later cannot explode.
+[event.action]
+subs = 1

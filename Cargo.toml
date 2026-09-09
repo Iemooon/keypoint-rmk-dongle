@@ -1,16 +1,46 @@
 [package]
-name = "rmk-nrf52840"
-version = "0.2.0"
-authors = ["Haobo Gu <haobogu@outlook.com>"]
-description = "Keyboard firmware written in Rust"
-homepage = "https://github.com/rmk-rs/rmk"
-repository = "https://github.com/rmk-rs/rmk"
-readme = "../../README.md"
+name = "keypoint-rmk-dongle"
+version = "0.1.0"
+authors = ["Lemon"]
+description = "KeyPoint split keyboard, dongle topology (nRF52840, RMK-based): USB receiver + two wireless halves"
+repository = "https://github.com/Iemooon/keypoint-dongle"
+readme = "README.md"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-rmk = { path = "../rmk/rmk", default-features = false, features = ["defmt", "storage", "vial", "watchdog", "nrf52840_ble", "split", "async_matrix", "adafruit_bl"] }
+# Local rmk checkout (HEAD, includes the 2026 dongle fixes #1112/#1115 and the
+# display macro fix #1113) - the same tree this example was copied from.
+# "display" pulls in embedded-graphics and enables the SplitMessage Layer/Wpm/
+# Modifier variants that feed the half panels. It applies to ALL bins (one
+# Cargo.toml), and every device must agree on it or their split messages
+# disagree on enum tags.
+# "use_1m_phy": the host's BT adapter shows 2M-PHY link flapping (b -> x -> b
+# re-advertising spells); 1M is slower over the air but far more tolerant.
+# Keep it until the adapter or its driver changes.
+rmk = { path = "../rmk/rmk", default-features = false, features = [
+    "defmt",
+    "storage",
+    "vial",
+    "watchdog",
+    "nrf52840_ble",
+    "split",
+    "async_matrix",
+    "adafruit_bl",
+    "display",
+    "use_1m_phy",
+] }
+# (No direct rmk-types dependency: rmk re-exports the whole crate as `rmk::types`.)
+
+# The trackpad and the nub are their own `#[input_device]` structs; these are the
+# traits those drivers are written against. Versions mirror rmk's own manifest.
+embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
+embedded-graphics = "0.8"
+heapless = "0.9"
+# TrackPoint's exponential acceleration term (the C code calls expf). Soft-float,
+# a few dozen cycles at a 200 Hz worst-case report rate.
+libm = "0.2"
 nrf-sdc = { version = "0.4.0", features = [
     "defmt",
     "peripheral",
@@ -26,6 +56,7 @@ bt-hci = { version = "0.10", features = ["defmt"] }
 
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.5"
+embassy-futures = "0.1"
 embassy-time = { version = "0.5", features = ["tick-hz-32_768", "defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.11", features = [
     "defmt",
@@ -46,24 +77,35 @@ defmt-rtt = "1"
 panic-probe = { version = "1", features = ["print-defmt"] }
 static_cell = "2"
 
-
 [build-dependencies]
 xz2 = "0.1.7"
 json = "0.12"
 const-gen = "1.6"
 
-# Split keyboard example
+# Bring-up isolation knobs for the receiver bin (src/central.rs), off by
+# default. softvd swaps HardwareVbusDetect for a software one; bare skips the
+# whole SDC/BLE stack. (The old nodcdc knob is gone: the receiver's DC/DC is
+# now permanently off, matching the image that first booted on the dongle.)
+[features]
+softvd = []
+bare = []
+
+# Three roles, one crate - the Makefile swaps memory.x (0x1000 for the
+# Nordic-dongle receiver base is now the SAME as the halves' 0x1000, so this
+# is only about template bookkeeping) before each bin's build:
+#   cargo make dongle  -> rmk-central.hex (receiver, Program via nRF Connect)
+#   cargo make uf2     -> rmk-left.uf2 / rmk-right.uf2 (halves, Adafruit BL)
 [[bin]]
 name = "central"
 path = "src/central.rs"
 
 [[bin]]
-name = "peripheral"
-path = "src/peripheral.rs"
+name = "left"
+path = "src/left.rs"
 
 [[bin]]
-name = "peripheral2"
-path = "src/peripheral2.rs"
+name = "right"
+path = "src/right.rs"
 
 [profile.dev]
 codegen-units = 1      # better optimizations

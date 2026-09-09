@@ -4,11 +4,13 @@ install_crate = { rustup_component_name = "llvm-tools" }
 [tasks.flip-link]
 install_crate = { crate_name = "flip-link", binary = "flip-link", test_arg = ["-h"] }
 
-# memory.x is shared by all three bins (build.rs copies it for the linker),
-# but the receiver links at 0x10000 (Nordic dongle bootloader) while the
-# halves live at 0x1000 (Adafruit UF2 bootloader). Each build task therefore
-# copies the matching template into place first; build.rs reruns on the
-# memory.x change, so the relink picks up the new base.
+# All three bins now link at 0x1000 - the Nordic dongle's factory boot slot
+# (byte-level proof from the working ZMK receiver image) happens to equal the
+# Adafruit UF2 app slot on the halves. The templates still differ: the
+# receiver's FLASH length stops at 0xA0000 (rmk keymap/Vial storage lives at
+# absolute 0xA0000+ on its 1MB flash) while the halves may run to near the
+# end. Each build task copies the matching template into memory.x first;
+# build.rs reads memory.x at build time and reruns on the change.
 [tasks.memory-dongle]
 command = "cmd"
 args = ["/C", "copy", "/Y", "memory-dongle.x", "memory.x"]
@@ -35,7 +37,7 @@ args = [
 ]
 dependencies = ["memory-dongle", "install-llvm-tools", "flip-link"]
 
-[tasks.objcopy-peripheral]
+[tasks.objcopy-left]
 install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
     "objcopy",
     "--help",
@@ -45,15 +47,32 @@ args = [
     "objcopy",
     "--release",
     "--bin",
-    "peripheral",
+    "left",
     "--",
     "-O",
     "ihex",
-    "rmk-peripheral.hex",
+    "rmk-left.hex",
 ]
 dependencies = ["memory-halves", "install-llvm-tools", "flip-link"]
 
-[tasks.objcopy-peripheral2]
+[tasks.uf2-left]
+install_crate = { crate_name = "cargo-hex-to-uf2", binary = "cargo", test_arg = [
+    "hex-to-uf2",
+    "--help",
+] }
+command = "cargo"
+args = [
+    "hex-to-uf2",
+    "--input-path",
+    "rmk-left.hex",
+    "--output-path",
+    "rmk-left.uf2",
+    "--family",
+    "nrf52840",
+]
+dependencies = ["objcopy-left"]
+
+[tasks.objcopy-right]
 install_crate = { crate_name = "cargo-binutils", binary = "cargo", test_arg = [
     "objcopy",
     "--help",
@@ -63,15 +82,15 @@ args = [
     "objcopy",
     "--release",
     "--bin",
-    "peripheral2",
+    "right",
     "--",
     "-O",
     "ihex",
-    "rmk-peripheral2.hex",
+    "rmk-right.hex",
 ]
 dependencies = ["memory-halves", "install-llvm-tools", "flip-link"]
 
-[tasks.uf2-peripheral]
+[tasks.uf2-right]
 install_crate = { crate_name = "cargo-hex-to-uf2", binary = "cargo", test_arg = [
     "hex-to-uf2",
     "--help",
@@ -80,36 +99,20 @@ command = "cargo"
 args = [
     "hex-to-uf2",
     "--input-path",
-    "rmk-peripheral.hex",
+    "rmk-right.hex",
     "--output-path",
-    "rmk-peripheral.uf2",
+    "rmk-right.uf2",
     "--family",
     "nrf52840",
 ]
-dependencies = ["objcopy-peripheral"]
+dependencies = ["objcopy-right"]
 
-[tasks.uf2-peripheral2]
-install_crate = { crate_name = "cargo-hex-to-uf2", binary = "cargo", test_arg = [
-    "hex-to-uf2",
-    "--help",
-] }
-command = "cargo"
-args = [
-    "hex-to-uf2",
-    "--input-path",
-    "rmk-peripheral2.hex",
-    "--output-path",
-    "rmk-peripheral2.uf2",
-    "--family",
-    "nrf52840",
-]
-dependencies = ["objcopy-peripheral2"]
-
-[tasks.uf2]
-dependencies = ["uf2-peripheral", "uf2-peripheral2"]
-
-# Receiver delivery = rmk-central.hex (links at 0x1000, verified boot base),
-# written with nRF Connect Programmer at the hex's own addresses. No nrfutil /
-# DFU zip needed (2026-09-09: Programmer raw-hex path confirmed working).
+# Receiver firmware: `cargo make dongle` -> rmk-central.hex, flashed with
+# nRF Connect Programmer (hex carries its own 0x1000 addresses).
 [tasks.dongle]
 dependencies = ["objcopy-central"]
+
+# Half firmwares: `cargo make uf2` -> rmk-left.uf2 + rmk-right.uf2, dragged
+# onto each BOOT2338 drive.
+[tasks.uf2]
+dependencies = ["uf2-left", "uf2-right"]
