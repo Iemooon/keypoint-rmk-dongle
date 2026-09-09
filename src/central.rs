@@ -178,23 +178,28 @@ mod bootdiag {
 }
 
 /// Pairing indicator on the two dongle LEDs (they blink in lockstep):
-/// ~3 Hz while either half link is down ("looking for its keyboards"), and
-/// dark once both peripherals are connected. Built on the connect/disconnect
-/// edges of PeripheralConnectedEvent; during the blink phase the wait is
-/// interruptible so a link coming up stops the flash mid-beat at worst 160 ms
-/// later, in the dark phase a drop wakes it instantly.
+/// ~3 Hz while a half link is down ("looking for its keyboards"), dark once
+/// both are up. The blink is capped: each search episode gets a 3-minute
+/// window, after which the LEDs go dark while the radio keeps searching
+/// silently (it always did - the LEDs were never the search). Any
+/// connect/disconnect edge re-arms a fresh window, so a half dropping out
+/// later blinks for 3 min again instead of the original infinite flash.
 #[embassy_executor::task]
 async fn link_led(
     mut led1: embassy_nrf::gpio::Output<'static>,
     mut led2: embassy_nrf::gpio::Output<'static>,
 ) -> ! {
     use embassy_futures::select::{Either, select};
+    use embassy_time::{Duration, Instant, Timer};
     use rmk::event::{EventSubscriber, PeripheralConnectedEvent, SubscribableEvent};
+
+    const BLINK_WINDOW: Duration = Duration::from_secs(180);
 
     let mut sub = PeripheralConnectedEvent::subscriber();
     // This build is hard-wired to the two halves (see the PeripheralMatrixConfig
     // array in main), so a fixed pair of flags matches the topology.
     let mut linked = [false; 2];
+    let mut deadline: Option<Instant> = None;
     loop {
         if linked.iter().all(|c| *c) {
             led1.set_high();
@@ -203,8 +208,22 @@ async fn link_led(
             if ev.id < 2 {
                 linked[ev.id] = ev.connected;
             }
+            deadline = None;
             continue;
         }
+        if deadline.is_some_and(|d| Instant::now() >= d) {
+            // Window lapsed: dark, but keep tracking edges so a later drop
+            // re-lights the indicator for a fresh window.
+            led1.set_high();
+            led2.set_high();
+            let ev = sub.next_event().await;
+            if ev.id < 2 {
+                linked[ev.id] = ev.connected;
+            }
+            deadline = None;
+            continue;
+        }
+        deadline.get_or_insert_with(|| Instant::now() + BLINK_WINDOW);
         // Active-low LEDs: low = lit. Two half-periods make one blink.
         for lit in [true, false] {
             if lit {
@@ -214,7 +233,7 @@ async fn link_led(
                 led1.set_high();
                 led2.set_high();
             }
-            if let Either::Second(ev) = select(embassy_time::Timer::after_millis(160), sub.next_event()).await
+            if let Either::Second(ev) = select(Timer::after_millis(160), sub.next_event()).await
                 && ev.id < 2
             {
                 linked[ev.id] = ev.connected;

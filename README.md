@@ -55,8 +55,10 @@ cargo make uf2
 
 单编某个角色：`cargo build --release --bin central|left|right`。
 接收器 bring-up 隔离开关（默认全关）：`--features softvd`（软件 VBUS 检测）、
-`--features bare`（跳过 SDC/BLE 栈只留 USB）。启动阶段由双 LED 报告：panic 时红灯快闪
-N 下=挂死阶段号，正常则每 3 s 单闪一次心跳。
+`--features bare`（跳过 SDC/BLE 栈只留 USB）。双 LED 常态是**配对指示**：任一半场未连时
+约 3Hz 闪（每轮最多 3 分钟，超时灭灯但无线电继续静默搜索，任何链路事件重新开窗），
+两半齐连即灭；固件 panic 时仍是"快闪 N 下成组循环"报启动阶段号（1入口/2init/3MPSL/
+4SDC/5USB驱动/6存储/7主循环）。
 
 ## 刷写与配对
 
